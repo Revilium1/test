@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Image Matcher</title>
+  <script async src="https://docs.opencv.org/4.x/opencv.js"></script>
+  <style>
+    video { width: 400px; border: 2px solid black; }
+  </style>
+</head>
+<body>
+
+<h2>Show an Image to the Camera</h2>
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas" style="display:none;"></canvas>
+<p id="status">Loading OpenCV...</p>
+
+<script>
+let video = document.getElementById("video");
+let canvas = document.getElementById("canvas");
+let statusText = document.getElementById("status");
+
+let orb, bf;
+let referenceData = [];
+
+const MIN_MATCHES = 25;
+
+// List your images and redirect targets
+const images = [
+  { src: "/images/icon1.jpg", redirect: "page1.html" },
+  { src: "/images/icon2.jpg", redirect: "page2.html" }
+];
+
+function startCamera() {
+  navigator.mediaDevices.getUserMedia({ video: true })
+    .then(stream => video.srcObject = stream);
+}
+
+function loadImage(src) {
+  return new Promise(resolve => {
+    let img = new Image();
+    img.src = src;
+    img.onload = () => resolve(img);
+  });
+}
+
+async function prepareReferences() {
+  for (let item of images) {
+    let img = await loadImage(item.src);
+    let mat = cv.imread(img);
+    let gray = new cv.Mat();
+    cv.cvtColor(mat, gray, cv.COLOR_RGBA2GRAY);
+
+    let keypoints = new cv.KeyPointVector();
+    let descriptors = new cv.Mat();
+    orb.detectAndCompute(gray, new cv.Mat(), keypoints, descriptors);
+
+    referenceData.push({
+      redirect: item.redirect,
+      descriptors: descriptors
+    });
+
+    mat.delete();
+    gray.delete();
+    keypoints.delete();
+  }
+}
+
+function matchFrame() {
+  let ctx = canvas.getContext("2d");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.drawImage(video, 0, 0);
+
+  let frame = cv.imread(canvas);
+  let gray = new cv.Mat();
+  cv.cvtColor(frame, gray, cv.COLOR_RGBA2GRAY);
+
+  let keypoints = new cv.KeyPointVector();
+  let descriptors = new cv.Mat();
+  orb.detectAndCompute(gray, new cv.Mat(), keypoints, descriptors);
+
+  for (let ref of referenceData) {
+    if (descriptors.rows > 0 && ref.descriptors.rows > 0) {
+      let matches = new cv.DMatchVector();
+      bf.match(descriptors, ref.descriptors, matches);
+
+      if (matches.size() > MIN_MATCHES) {
+        window.location.href = ref.redirect;
+      }
+
+      matches.delete();
+    }
+  }
+
+  frame.delete();
+  gray.delete();
+  keypoints.delete();
+  descriptors.delete();
+
+  requestAnimationFrame(matchFrame);
+}
+
+cv['onRuntimeInitialized'] = async () => {
+  statusText.innerText = "OpenCV Loaded. Starting...";
+  orb = new cv.ORB();
+  bf = new cv.BFMatcher(cv.NORM_HAMMING, true);
+
+  startCamera();
+  await prepareReferences();
+
+  setTimeout(matchFrame, 1000);
+};
+</script>
+
+</body>
+</html>
